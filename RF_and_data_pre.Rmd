@@ -1,0 +1,273 @@
+---
+title: "Ali_BF_final"
+author: "Ali Alghaithi"
+date: "12/12/2020"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+---
+
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(fig.align='center', dpi=100, message=FALSE, warning=FALSE, cache=T,echo=T)
+output <- opts_knit$get("rmarkdown.pandoc.to")
+if(!is.null(output)) {
+  if (output=="html") opts_chunk$set(out.width = '400px') else
+    opts_chunk$set(out.width='.6\\linewidth')
+}
+```
+
+# measurements Function 
+```{r}
+measurements <- function(real,pred,Name) {
+Confusion_Matrix<- table(real,pred,dnn = c("Real", "y_pred"))
+TN = Confusion_Matrix[1,1]
+FN= Confusion_Matrix[2,1]
+FP= Confusion_Matrix[1,2]
+TP= Confusion_Matrix[2,2]
+
+# True Negative Rate 
+Acc_Negative = TN/(TN+FP)
+
+# True Positive Rate
+Acc_Positive = TP/(TP+FN)
+Recall = Acc_Positive
+
+# G-mean 
+G_mean = (Acc_Negative * Acc_Positive)^(1/2)
+
+# Precision
+Precision = TP/(TP+FP)
+
+# Weighted Accuracy
+Beta= 0.5 # Here we use equal weights for both true positive rate and true negative rate; i.e., β equals 0.5
+Weighted_Accuracy=  (Beta * Acc_Positive) + ((1-Beta)*Acc_Negative)
+
+# F-measure
+F_measure = (2 * Precision * Recall) /(Precision + Recall)
+
+performance_measures <- data.frame("Method"= Name,"Acc_Positive(Recall)" =Acc_Positive, "Acc_Negative" = Acc_Negative, "Precision" = Precision,"F_measure" = F_measure,"G_mean" = G_mean,"Weighted_Accuracy" = Weighted_Accuracy)
+
+return(performance_measures)
+
+}
+
+
+```
+
+
+```{r}
+set.seed(2020)
+library(readr)
+library(dplyr)
+data <- read_csv("/Users/alialghaithi/Box/BF_Class/Final_exam_BF/finalDataGOOD.csv")
+
+
+library(imputeTS)
+data$percent_miles_pay<- na.locf(data$percent_miles_pay, option = "nocb") # Next Obs. Carried Backward
+
+df = subset(data, select = -c(TERMINATION_PROCESS_TS,PROMOTION_PROCESS_TS,HIRE_PROCESS_TS,`Retention (Days)`,SEGMENT_LINEHAUL_MILES_QTY,REASON_CD,TERMINATION_DT,`Simulated Training`,`CSA Count`,REHIRED,PRODUCTION_STATE_TXT,ACTIVE_PRODUCTION_STATE_CNT,INACTIVE_PRODUCTION_STATE_CNT,
+                            AVAILABLE_PRODUCTION_STATE_CNT,INVALID_PRODUCTION_STATE_CNT,OFF_TRUCK_CD,
+                            DESCRIPTION_TXT,Miles_Quantity_Total,FiredDate,VETERAN_FLG,ReportDate,
+                            Max_Students,X1,STATE_CD,REPORT_DT,Driver_type,rDay,rMonth,rYear,hiredDate))
+
+Unique_ID_VQUIT<- df%>% group_by(Unique_ID,TERMINATION_TYPE_CD) %>% summarise() %>% filter(TERMINATION_TYPE_CD =="VQUIT")
+
+df2 <- df %>% filter(Unique_ID %in% Unique_ID_VQUIT$Unique_ID)
+
+
+```
+
+# Data Imputation 
+```{r}
+# imputing zip_code
+NA_zip <- df2 %>% filter(Zip5 %in% c(NA)) 
+unique(NA_zip$Unique_ID)
+
+df2 %>% filter(Unique_ID %in%c(unique(NA_zip$Unique_ID)))
+tt<- df2 %>% filter(state_GA == 1)  # state_PA
+tt1<- df2 %>% filter(state_PA == 1) # # state_GA
+
+round(mean(unique(tt$Zip5),na.rm=TRUE))
+round(mean(unique(tt1$Zip5),na.rm=TRUE))
+# 24050 for 160168 id
+df2$Zip5[df2$Unique_ID == 142705] <- 30535
+df2$Zip5[df2$Unique_ID == 160168] <- 24050
+
+
+# imputing EQUIPMENT_COST_DIVISION_CD
+library(imputeMissings)
+# save the result as another object
+df2<- impute(as.data.frame(df2), method = "median/mode")
+ 
+colnames(df2)
+
+dim(df2)
+
+
+```
+
+
+
+# Making train amd test data 
+```{r}
+set.seed(2020)
+df3 = subset(df2, select = -c(TERMINATION_TYPE_CD,REASON_DESCRIPTION_TXT,daysLeft,Unique_ID))
+df3 <- as.data.frame(data.frame(df3))
+#df3<- na.omit(df3)
+df3$quitIn30Days<-factor(df3$quitIn30Days)
+
+colnames(df3)
+dim(df3)
+
+
+
+# Data prepration 
+library(caret)
+trainIndex <- createDataPartition(df3$quitIn30Days, p = 0.7, 
+                                  list = FALSE, 
+                                  times = 1)
+
+
+the_train <- df3[ trainIndex,]
+the_test  <- df3[-trainIndex,]
+#write.csv(the_train,"the_train_dummy.csv", row.names = FALSE)
+#write.csv(the_test,"the_test_dummy.csv", row.names = FALSE)
+
+
+table(the_train$quitIn30Days)
+table(the_test$quitIn30Days)
+
+
+```
+
+# RF: sampsize 
+
+```{r}
+set.seed(2020)
+# model
+library(randomForest)  # random forest modeling
+sampsize = rep(min(as.integer(summary( the_train$quitIn30Days))),2)
+emp_res_rose_RF <- randomForest(quitIn30Days ~ .,
+                           data = df3,
+                           ntree=1000,sampsize=sampsize)
+
+# Predictions on the train data 
+table(emp_res_rose_RF$predicted,the_train$quitIn30Days)
+table(the_train$quitIn30Days)
+measurements(the_train$quitIn30Days,emp_res_rose_RF$predicted,"RF :basic")
+
+
+# Predictions on the test data
+y_pred <- predict(emp_res_rose_RF, the_test,type = "response")
+table(the_test$quitIn30Days,y_pred)
+table(the_test$quitIn30Days)
+measurements(the_test$quitIn30Days,y_pred,"RF :basic")
+
+
+# Accuracy
+misClasificError <- mean(as.numeric(y_pred == 1) !=  as.numeric(the_test$quitIn30Days == 1)) 
+print(paste('Accuracy',(1-misClasificError)))
+
+```
+
+
+# RF: sampsize,cutoff = c(0.4, 0.6)
+```{r}
+set.seed(2020)
+# model
+library(randomForest)  # random forest modeling
+sampsize = rep(min(as.integer(summary( the_train$quitIn30Days))),2)
+emp_res_rose_RF <- randomForest(quitIn30Days ~ .,
+                           data = the_train,
+                           ntree=1000,sampsize=sampsize,cutoff = c(0.4, 0.6),importance =T,replace = T)
+
+
+# Predictions on the train data 
+table(emp_res_rose_RF$predicted,the_train$quitIn30Days)
+table(the_train$quitIn30Days)
+measurements(the_train$quitIn30Days,emp_res_rose_RF$predicted,"BRF : 0.4")
+
+
+# Predictions on the test data
+y_pred <- predict(emp_res_rose_RF, the_test,type = "response")
+table(the_test$quitIn30Days,y_pred)
+table(the_test$quitIn30Days)
+measurements(the_test$quitIn30Days,y_pred,"BRF : 0.4")
+
+
+# Accuracy
+misClasificError <- mean(as.numeric(y_pred == 1) !=  as.numeric(the_test$quitIn30Days == 1)) 
+print(paste('Accuracy',(1-misClasificError)))
+```
+
+# Rf : sampsize & cutoff = c(0.45, 0.55)
+```{r}
+set.seed(2020)
+# model
+library(randomForest)  # random forest modeling
+sampsize = rep(min(as.integer(summary( the_train$quitIn30Days))),2)
+emp_res_rose_RF <- randomForest(quitIn30Days ~ .,
+                           data = the_train,
+                           ntree=1000,sampsize=sampsize,cutoff = c(0.45, 0.55),replace = T)
+
+
+# Predictions on the train data 
+table(emp_res_rose_RF$predicted,the_train$quitIn30Days)
+table(the_train$quitIn30Days)
+measurements(the_train$quitIn30Days,emp_res_rose_RF$predicted,"BRF : 0.45")
+
+
+# Predictions on the test data
+y_pred <- predict(emp_res_rose_RF, the_test,type = "response")
+table(the_test$quitIn30Days,y_pred)
+table(the_test$quitIn30Days)
+measurements(the_test$quitIn30Days,y_pred,"BRF : 0.45")
+
+
+# Accuracy
+misClasificError <- mean(as.numeric(y_pred == 1) !=  as.numeric(the_test$quitIn30Days == 1)) 
+print(paste('Accuracy',(1-misClasificError)))
+```
+
+```{r}
+set.seed(2020)
+# model
+library(randomForest)  # random forest modeling
+sampsize = rep(min(as.integer(summary( the_train$quitIn30Days))),2)
+emp_res_rose_RF <- randomForest(quitIn30Days ~ .,
+                           data = the_train,
+                           ntree=1000)
+
+
+# Predictions on the train data 
+table(emp_res_rose_RF$predicted,the_train$quitIn30Days)
+table(the_train$quitIn30Days)
+measurements(the_train$quitIn30Days,emp_res_rose_RF$predicted,"basic RF")
+
+
+# Predictions on the test data
+y_pred <- predict(emp_res_rose_RF, the_test,type = "response")
+table(the_test$quitIn30Days,y_pred)
+table(the_test$quitIn30Days)
+measurements(the_test$quitIn30Days,y_pred,"basic RF")
+
+
+# Accuracy
+misClasificError <- mean(as.numeric(y_pred == 1) !=  as.numeric(the_test$quitIn30Days == 1)) 
+print(paste('Accuracy',(1-misClasificError)))
+```
+
+
+
+# Variable Importance (Accuracy) plot 
+```{r}
+ varImpPlot(emp_res_rose_RF,type=1,
+           main="Variable Importance (Accuracy)",
+           sub = "Random Forest Model")
+
+
+```

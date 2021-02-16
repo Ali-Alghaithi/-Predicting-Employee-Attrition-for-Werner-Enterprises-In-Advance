@@ -1,0 +1,69 @@
+---
+title: "final_Exam"
+author: "Mamadou Traore"
+date: "12/12/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+driver_data <- read.csv("C:/Users/tmama/Desktop/Business Forcasting/Project 2/FResults/driver_data.csv")
+
+
+driver_data$Max_Students <- factor(driver_data$Max_Students)
+#write.csv(driver_data,"driver_data.csv", row.names = FALSE)
+
+driver_data
+
+library(ggplot2)
+ ggplot(driver_data) + geom_bar(aes(x = GENDER_CD,fill = VETERAN_FLG)) +
+   facet_wrap( ~ factor(Max_Students))
+
+ ggplot(driver_data) + geom_bar(aes(x = GENDER_CD,fill = REHIRED))
+ ggplot(driver_data) + geom_bar(aes(x = GENDER_CD,fill = factor(Max_Students)))
+
+# Scatterplot
+gg <- ggplot(driver_data, aes(x=Age, y= Retention..Days.)) + 
+  geom_point(aes(col=Max_Students)) + 
+  geom_smooth(method="loess", se=F) +   labs(subtitle="Age Vs Retention relation", 
+       y="Retention (Days)", 
+       x="Age", 
+       title="Scatterplot", 
+       caption = "Age and Retention relation ") + facet_wrap( ~ (VETERAN_FLG))
+
+plot(gg)
+
+```
+
+```{r}
+driver_data
+```
+
+```{r}
+## set the levels in order we want
+theTable <- within(driver_data, 
+                   STATE_CD <- factor(STATE_CD, 
+                                      levels=names(sort(table(STATE_CD), 
+                                                        decreasing=F))))
+## plot
+ggplot(theTable,aes(x=STATE_CD))+geom_bar(fill="blue", alpha=.6, width=.4) + coord_flip()
+
+```
+
+
+```{r}
+gg <- ggplot(driver_data, aes(x=Age, y= Retention..Days.)) + 
+  geom_point(aes(col=Max_Students)) + 
+  geom_smooth(method="loess", se=F) +   labs(subtitle="Age Vs Retention relation", 
+       y="Retention (Days)", 
+       x="Age", 
+       title="Scatterplot", 
+       caption = "Age and Retention relation ") + facet_wrap( ~ (GENDER_CD))
+
+plot(gg)
+
+```
